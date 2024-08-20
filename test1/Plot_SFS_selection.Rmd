@@ -1,0 +1,433 @@
+---
+title: "Plot_SFS"
+output: html_document
+date: "2024-07-22"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+setwd('~/Desktop/Rworks')
+```
+
+## Input SFS
+
+Because something's weird happening with the subsampling argument for the SFS script, subMed group contains 14 samples (excluding 3 from Canary) instead of 11 from other two groups. Hence, SFS for three groups cannot be plotted on the same graph. To maintain consistency among the graphs, **the same range is applied for y-axis**.
+
+```{r}
+library(ggplot2)
+
+# Example data frame
+df <- read.table('../stairwayplot2/sorted_Afr.sfs')
+colnames(df) <- c('Counts','Proportion')
+df$Counts <- as.factor(df$Counts)
+sites <- round(sum(df$Proportion)/1e6,1) #number of sites in millions
+#maybe include the total number of sites in the title.
+
+
+#Calculate the absolute proportions from the total genome
+df_ppt <- df[2:nrow(df),]
+df_ppt[,2] <- df_ppt[,2]/sum(df[,2])
+
+```
+
+## Including Plots
+
+```{r}
+png(filename = 'SFS_subMed.rm3_proportion.png',res = 300,width = 200, height = 160, units = 'mm')
+ggplot(df_ppt, aes(x = Counts, y = Proportion)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(size = 10),plot.title = element_text(hjust = 0.5)) +
+  scale_y_continuous(limits = c(0, 0.08)) + #Adjust the scale so three groups have consistent y-axis
+  ggtitle(paste('SFS of 14 Mediterranean samples, L=',sites,'M', sep = ''))
+dev.off()
+```
+
+## Merge the two Ne estimates together to form a total demographic model for simulation
+
+The time interval between two models is imputed linearly (Med and Afr) or step-wise (Mal)
+
+### For Med group,
+
+```{r}
+dfgone_Med <- read.table('GONE_output/Output_Ne_subMed.eu40.vs.dchry2.3.autosome.DP8_100.GQ20.1.2M_rep200_edited',skip = 1,header = T)
+
+dfgone_Med <- dfgone_Med[21:500,]
+label <- c('gens','Ne')
+colnames(dfgone_Med) <- label
+dfgone_Med$Ne <- round(dfgone_Med$Ne)
+
+dfsp2_Med <- read.table('~/Desktop/stairwayplot2/subMed_fold_new/subMed_fold_new/subMed_fold_new.final.summary',header = T)
+dfsp2_Med <- dfsp2_Med[-1,]
+
+#The 'year' label should be converted to generation time. And the duplicated estimates for each generation are removed.
+dfsp2_Med$gens <- dfsp2_Med$year*9
+label <- c('gens','Ne')
+dfsp2_Med <- dfsp2_Med[dfsp2_Med$gens >= 1000,label]
+dfsp2_Med$gens <- round(dfsp2_Med$gens)
+dfsp2_Med$Ne <- round(dfsp2_Med$Ne)
+duplicated_rows <- duplicated(dfsp2_Med$gens)
+dfsp2_Med_unique <- dfsp2_Med[!duplicated_rows,]
+duplicated_rows <- duplicated(dfsp2_Med_unique$Ne)
+dfsp2_Med_unique <- dfsp2_Med_unique[!duplicated_rows,]
+
+
+#Impute the missing history between two models
+y2 <- dfsp2_Med_unique[1,2]
+y1 <- dfgone_Med[nrow(dfgone_Med),2]
+x2 <- dfsp2_Med_unique[1,1]
+x1 <- dfgone_Med[nrow(dfgone_Med),1]
+# Create a sequence of x values with an increase of 10
+x_values <- seq(x1, x2, by = 10)
+y_values <- round((y2-y1)/(x2-x1)*(x_values-x1) + y1)
+#Truncate the start and end positions as they are presented by the existing demography
+df_imp <- data.frame(x = x_values, y = y_values)
+df_imp <- df_imp[2:(nrow(df_imp)-1),]
+colnames(df_imp) <- label
+
+df_Med_total <- rbind(dfgone_Med,df_imp,dfsp2_Med_unique)
+write.table(df_Med_total,file = '../simul/Ne_model_Med',col.names = F,row.names = F)
+```
+
+For Mal group,
+
+```{r}
+dfgone_Mal <- read.table('GONE_output/Output_Ne_Mal.eu40.vs.dchry2.3.autosome.DP8_100.GQ20.1.2M_rep200_edited',skip = 1,header = T)
+
+dfgone_Mal <- dfgone_Mal[21:500,]
+label <- c('gens','Ne')
+colnames(dfgone_Mal) <- label
+dfgone_Mal$Ne <- round(dfgone_Mal$Ne)
+
+dfsp2_Mal <- read.table('~/Desktop/stairwayplot2/Mal_fold_new/Mal_fold/Mal_fold.final.summary',header = T)
+dfsp2_Mal <- dfsp2_Mal[-1,]
+
+#The 'year' label should be converted to generation time. And the duplicated estimates for each generation are removed.
+dfsp2_Mal$gens <- dfsp2_Mal$year*9
+dfsp2_Mal$Ne <- dfsp2_Mal$Ne_median
+label <- c('gens','Ne')
+dfsp2_Mal <- dfsp2_Mal[dfsp2_Mal$gens >= 1000,label]
+dfsp2_Mal$gens <- round(dfsp2_Mal$gens)
+dfsp2_Mal$Ne <- round(dfsp2_Mal$Ne)
+duplicated_rows <- duplicated(dfsp2_Mal$gens)
+dfsp2_Mal_unique <- dfsp2_Mal[!duplicated_rows,]
+duplicated_rows <- duplicated(dfsp2_Mal_unique$Ne)
+dfsp2_Mal_unique <- dfsp2_Mal_unique[!duplicated_rows,]
+
+
+df_Mal_total <- rbind(dfgone_Mal,dfsp2_Mal_unique)
+write.table(df_Mal_total,file = '../simul/Ne_model_Mal',col.names = F,row.names = F)
+```
+
+For Afr group,
+
+```{r}
+#Read GONE results and trim regions with low power
+dfgone_Afr <- read.table('GONE_output/Output_Ne_Afr.eu40.vs.dchry2.3.autosome.DP8_100.GQ20.1.2M_edited',skip = 1,header = T)
+
+dfgone_Afr <- dfgone_Afr[21:500,]
+label <- c('gens','Ne')
+colnames(dfgone_Afr) <- label
+dfgone_Afr$Ne <- round(dfgone_Afr$Ne)
+
+#Read SP2 results
+dfAfr <- read.table('../stairwayplot2/Afr_fold_new/Afr_fold/Afr_fold.final.summary',header = T)
+dfAfr$year <- dfAfr$year*9
+dfAfr <- dfAfr[2:nrow(dfAfr),c('year','Ne_median')]
+label <- c('gens','Ne')
+colnames(dfAfr) <- label
+
+dfAfr_rounded <- dfAfr
+dfAfr_rounded[] <- lapply(dfAfr_rounded, function(x) {
+  if (is.numeric(x)) {
+    round(x)  # Round numeric columns to the nearest integer
+  } else {
+    x  # Leave non-numeric columns unchanged
+  }
+})
+duplicated_rows <- duplicated(dfAfr_rounded$gens)
+dfAfr_rounded_unique <- dfAfr_rounded[!duplicated_rows,]
+duplicated_rows <- duplicated(dfAfr_rounded_unique$Ne)
+dfAfr_rounded_unique <- dfAfr_rounded_unique[!duplicated_rows,]
+
+#Impute the missing history between two models
+y2 <- dfAfr_rounded_unique[1,2]
+y1 <- dfgone_Afr[nrow(dfgone_Afr),2]
+x2 <- dfAfr_rounded_unique[1,1]
+x1 <- dfgone_Afr[nrow(dfgone_Afr),1]
+# Create a sequence of x values with an increase of 10
+x_values <- seq(x1, x2, by = 1000)
+y_values <- round((y2-y1)/(x2-x1)*(x_values-x1) + y1)
+#Truncate the start and end positions as they are presented by the existing demography
+df_imp <- data.frame(x = x_values, y = y_values)
+df_imp <- df_imp[2:(nrow(df_imp)-1),]
+colnames(df_imp) <- label
+
+df_Afr_total <- rbind(dfgone_Afr,df_imp,dfAfr_rounded_unique)
+write.table(df_Afr_total,file = '../simul/Ne_model_Afr',col.names = F,row.names = F)
+```
+
+## Plot the simulated SFS together with observed
+
+Remember to change the name of the plot below
+
+```{r}
+file_content <- readLines("simul_short_subMed.rm3_SFS")
+df.obs <- read.table('../stairwayplot2/sorted_subMed.rm3.sfs')
+output_filename <- 'SFS_Afr_obs.vs.sim.png'
+
+# Extract and convert the relevant parts
+mean_sfs <- as.numeric(unlist(strsplit(gsub("Mean SFS: \\[|\\]", "", file_content[1]), "\\s+")))
+ci_lower <- as.numeric(unlist(strsplit(gsub("95% CI Lower: \\[|\\]", "", file_content[2]), "\\s+")))
+ci_upper <- as.numeric(unlist(strsplit(gsub("95% CI Upper: \\[|\\]", "", file_content[3]), "\\s+")))
+
+# Create a data frame
+df <- data.frame(
+  Mean_SFS = mean_sfs,
+  CI_Lower = ci_lower,
+  CI_Upper = ci_upper
+)
+df.sim_ppt <- df[df$Mean_SFS != 0,] #Extract the sites with true values (folded SFS)
+df.sim_ppt <- cbind(seq(1,nrow(df.sim_ppt)),df.sim_ppt)
+colnames(df.sim_ppt)[1] <- 'MAC'
+
+colnames(df.obs) <- c('Counts','Proportion')
+df.obs$Counts <- as.factor(df.obs$Counts)
+
+#Calculate the absolute proportions from the total genome
+df.obs_ppt <- df.obs[2:nrow(df.obs),]
+df.obs_ppt[,2] <- df.obs_ppt[,2]/sum(df.obs[,2])
+colnames(df.obs_ppt) <- c('MAC','Mean_SFS')
+df.obs_ppt$CI_Lower <- NA
+df.obs_ppt$CI_Upper <- NA
+
+# Add a column to distinguish between simulated and observed data
+df.sim_ppt$Type <- "Simulated"
+df.obs_ppt$Type <- "Observed"
+
+# Combine the dataframes
+df_combined <- rbind(df.sim_ppt, df.obs_ppt)
+df_combined$MAC <- factor(df_combined$MAC, levels = as.character(1:nrow(df_combined)))
+
+library(ggplot2)
+
+png(filename = output_filename,res = 300,width = 200, height = 160, units = 'mm')
+ggplot(df_combined, aes(x = MAC, y = Mean_SFS, fill = Type)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8), width = 0.7) +
+  geom_errorbar(aes(ymin = CI_Lower, ymax = CI_Upper), 
+                position = position_dodge(width = 0.8), 
+                width = 0.25) +
+  labs(x = "MAC", y = "Proportion", fill = "Type") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(hjust = 1))
+dev.off()
+
+result.chisq <- chisq.test(df.obs$Proportion,p=c(1-sum(df.sim_ppt$Mean_SFS),df.sim_ppt$Mean_SFS))
+
+intermediate.freq <- df.sim_ppt$Mean_SFS[4:nrow(df.sim_ppt)]
+intermediate.freq <- intermediate.freq/sum(intermediate.freq)
+result.chisq2 <- chisq.test(df.obs$Proportion[5:nrow(df.obs)],p=intermediate.freq)
+```
+
+## Plot the histogram for the distribution of Tajima's D
+
+Summarize the distribution of statistics in a boxplot, include the value for B locus
+
+```{r}
+library(ggplot2)
+
+dt <- read.csv('selection.stats/obs_tajimas_d_subMed_rm3.csv')
+counts <- read.csv('selection.stats/obs_tajimas_d_subMed_rm3_counts.csv')
+windows <- read.csv('selection.stats/obs_tajimas_d_subMed_rm3_windows.csv',header = F)
+output_filename <- 'TajimasD_obs_Mal+locusB.png'
+
+windows <- windows[2:nrow(windows),]
+windows$V1 <- as.numeric(windows$V1)
+dt.filt <- cbind(dt,windows,counts)
+colnames(dt.filt) <- c('TajimasD','start','end','counts')
+dt.filt <- dt.filt[!is.na(dt[,1]),]
+window_size <- (dt.filt$end[5] - dt.filt$start[5])/2
+B_locus <- dt.filt[dt.filt$start==6300001,1]
+
+
+png(filename = output_filename,res = 300,width = 200, height = 160, units = 'mm')
+ggplot(dt.filt, aes(x = TajimasD)) +
+  geom_histogram(binwidth = 0.1, fill = "blue", color = "black") +
+  labs(x = "Tajima's D", y = "Frequency") +
+  geom_vline(xintercept = B_locus, linetype = "dashed", color = "red", linewidth = 0.7) +
+  geom_text(aes(x = B_locus + 0.2, y = 75, label = paste('D =', round(B_locus,3))), color = 'red', size = 4, hjust = 0) +
+  theme_minimal()
+dev.off()
+```
+
+### Plot the Tajima's D across the chromosome, including the B locus
+
+```{r}
+output_filename2 <- 'TajimasD_obs_Mal+locusB_alongchr.png'
+
+png(filename = output_filename2,res = 300,width = 200, height = 160, units = 'mm')
+  ggplot(dt.filt, aes(x = start)) +
+  geom_line(aes(y = TajimasD), color = 'blue') +
+  geom_vline(xintercept = 6.3e6, linetype = "dashed", color = "red", linewidth = 0.7) + # add a line to show position of B locus
+  #ggtitle(paste('Diversity in 10k windows, chr15')) + #add a title
+  #geom_line(data = div_in_windows_filt[div_in_windows_filt$scaffold == 'chr15',], aes(x = mid, y = pi_African), color = 'blue') +
+  theme(plot.title = element_text(hjust = 0.5)) #adjust the title position
+
+dev.off()
+```
+
+### Plot permutation test result for Tajima's D (run the block for calculating observed statistics first)
+
+```{r}
+library(ggplot2)
+
+output_filename <- 'Permutation_Med_TajimasD'
+df <- read.table('selection.stats/list.Med.tajimasD.reps')
+
+df$V1 <- sort(df$V1)
+percentile95 <- df[nrow(df)*0.95,1]
+paste('95% Percentile: ',percentile95,'; Observed statistic:',B_locus) # 95% percentile of null distribution is larger than observed statistics at B locus. No statistical significance for selective sweeps
+
+png(filename = output_filename,res = 300,width = 200, height = 160, units = 'mm')
+ggplot(df, aes(x = V1)) +
+  geom_histogram(binwidth = 0.05, fill = "blue", color = "black", alpha = 0.7) +
+  labs(x = 'Null distribution', y = 'Counts') +
+  geom_vline(xintercept = B_locus, linetype = "dashed", color = "red", linewidth = 0.7) +
+  geom_vline(xintercept = percentile95, linetype = "dashed", color = "orange", linewidth = 0.7) +
+  geom_text(aes(x = B_locus + 0.05, y = 75, label = paste('D =', round(B_locus,3))), color = 'red', size = 4, hjust = 0) +
+  geom_text(aes(x = percentile95 + 0.05, y = 90, label = paste('95% percentile =', round(percentile95,3))), color = 'orange', size = 4, hjust = 0) 
+dev.off()
+```
+
+### Compare the distribution of Tajima's D between simulated and observed data
+
+run code block for tajima's D first, to incorporate statistic value at locus B
+
+```{r}
+output_filename <- 'tajimasD_distribution_Med+Blocus.png'
+lines <- readLines("selection.stats/list.Med.tajimasD.distr.10M")
+
+df_o <- as.data.frame(dt.filt$TajimasD)
+colnames(df_o) <- 'tajimasD'
+df_o$group <- 'obs'
+
+split_lines <- strsplit(lines, split = ",")
+values <- unlist(split_lines)
+numeric_values <- as.numeric(values)
+df_s <- as.data.frame(numeric_values)
+colnames(df_s) <- 'tajimasD'
+df_s$group <- 'sim'
+
+df_c <- rbind(df_o,df_s)
+  
+png(filename = output_filename,res = 300,width = 200, height = 160, units = 'mm')
+ggplot(df_c, aes(x = tajimasD, fill = group)) +
+  geom_histogram(aes(y = ..count../sum(..count..)),position = "identity", binwidth = 0.1, alpha = 0.5, color = "black") +
+  #geom_histogram(aes(y = ..count../sum(..count..)), binwidth = 0.01, fill = "blue", color = "black") +
+  labs(x = "Tajima's D", y = "Frequency") +
+  geom_vline(xintercept = B_locus, linetype = "dashed", color = "red", linewidth = 0.7) +
+  geom_text(aes(x = B_locus + 0.2, y = 0.05, label = paste('D =', round(B_locus,3))), color = 'red', size = 4, hjust = 0) +
+  theme_minimal()
+dev.off()
+```
+
+## Plot the histogram for the distribution of Garud's H statistics
+
+```{r}
+df <- read.csv('selection.stats/obs_h12_h2h1_subMed.rm3.nosingletons.csv',header = F,skip = 1)
+windows <- read.csv('selection.stats/obs_h12_h2h1_subMed.rm3_windows.nosingletons.csv',header = F)
+output_filename <- 'h12_obs_subMed_rm3+Blocus_nosingletons.png'
+#H12 in B locus region(6.3M - 6.31M) is derived directly from the python script
+Blocus <- read.csv('selection.stats/obs_h12_h2h1_subMed_rm3.Blocus',header = F)
+
+B_locus <- max(Blocus)
+df <- as.data.frame(t(df))
+windows <- windows[2:nrow(windows),]
+windows$V1 <- as.numeric(windows$V1)
+
+#Mallorca group doesn't have consistent columns between windows and H12. Remove the last H12 column, only for Mal group
+df <- df[1:nrow(df),]
+
+dt.filt <- cbind(df,windows)
+colnames(dt.filt) <- c('H1','H12','H123','H2_H1','start','end')
+dt.filt <- dt.filt[!is.na(dt.filt[,2]),]
+
+
+library(ggplot2)
+
+png(filename = output_filename,res = 300,width = 200, height = 160, units = 'mm')
+ggplot(dt.filt, aes(x = H12)) +
+  geom_histogram(binwidth = 0.001, fill = "blue", color = "black") +
+  labs(x = "H12", y = "Frequency") +
+  #geom_vline(xintercept = max(Blocus), linetype = "dashed", color = "red", linewidtmax(Blocus),3h = 0.7) +
+  #geom_text(aes(x = max(Blocus) + 0.001, y = 750, label = paste('H12 =', round())), color = 'red', size = 4, hjust = 0) +
+  theme_minimal()
+dev.off()
+```
+
+Plot H12 across the chromosome, including the B locus
+
+```{r}
+output_filename2 <- 'h12_obs_Med+locusB_nosingletons_alongchr.png'
+
+png(filename = output_filename2,res = 300,width = 200, height = 160, units = 'mm')
+  ggplot(dt.filt, aes(x = start)) +
+  geom_line(aes(y = H12), color = 'blue') +
+  geom_vline(xintercept = 6.3e6, linetype = "dashed", color = "red", linewidth = 0.7) + # add a line to show position of B locus
+  #ggtitle(paste('Diversity in 10k windows, chr15')) + #add a title
+  #geom_line(data = div_in_windows_filt[div_in_windows_filt$scaffold == 'chr15',], aes(x = mid, y = pi_African), color = 'blue') +
+  theme(plot.title = element_text(hjust = 0.5)) #adjust the title position
+
+dev.off()
+```
+
+### Plot permutation test result for H12 (run the block for calculating observed statistics first)
+
+```{r}
+output_filename <- 'Permutation_Med_H12'
+df <- read.table('selection.stats/list.Med.H12.reps')
+
+df$V1 <- sort(df$V1)
+percentile95 <- df[nrow(df)*0.95,1]
+paste('95% Percentile: ',percentile95,'; Observed statistic:',B_locus) # 95% percentile of null distribution is larger than observed statistics at B locus. No statistical significance for selective sweeps
+
+png(filename = output_filename,res = 300,width = 200, height = 160, units = 'mm')
+ggplot(df, aes(x = V1)) +
+  geom_histogram(binwidth = 0.02, fill = "blue", color = "black", alpha = 0.7) +
+  labs(x = 'Null distribution', y = 'Counts') +
+  geom_vline(xintercept = B_locus, linetype = "dashed", color = "red", linewidth = 0.7) +
+  geom_vline(xintercept = percentile95, linetype = "dashed", color = "orange", linewidth = 0.7) +
+  geom_text(aes(x = B_locus + 0.01, y = 150, label = paste('H12 =', round(B_locus,3))), color = 'red', size = 4, hjust = 0) +
+  geom_text(aes(x = percentile95 + 0.01, y = 150, label = paste('95% percentile =', round(percentile95,3))), color = 'orange', size = 4, hjust = 0) 
+dev.off()
+```
+
+### Compare the distribution of H12 statistics between simulated and observed data
+
+```{r}
+output_filename <- 'H12_distribution_Med'
+lines <- readLines("selection.stats/list.Med.H12.distr.10M")
+
+df_o <- as.data.frame(dt.filt$H12)
+colnames(df_o) <- 'H12'
+df_o$group <- 'obs'
+
+split_lines <- strsplit(lines, split = ",")
+values <- unlist(split_lines)
+numeric_values <- as.numeric(values)
+df_s <- as.data.frame(numeric_values)
+colnames(df_s) <- 'H12'
+df_s$group <- 'sim'
+
+df_c <- rbind(df_o,df_s)
+  
+png(filename = output_filename,res = 300,width = 200, height = 160, units = 'mm')
+ggplot(df_c, aes(x = H12, fill = group)) +
+  geom_histogram(aes(y = ..count../sum(..count..)),position = "identity", binwidth = 0.01, alpha = 0.5, color = "black") +
+  #geom_histogram(aes(y = ..count../sum(..count..)), binwidth = 0.01, fill = "blue", color = "black") +
+  labs(x = "H12", y = "Frequency") +
+  #geom_vline(xintercept = B_locus, linetype = "dashed", color = "red", linewidth = 0.7) +
+  #geom_text(aes(x = B_locus + 0.2, y = 75, label = paste('D =', round(B_locus,3))), color = 'red', size = 4, hjust = 0) +
+  theme_minimal()
+dev.off()
+```

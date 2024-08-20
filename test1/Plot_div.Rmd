@@ -1,0 +1,651 @@
+---
+title: "Plot_div"
+output: html_document
+date: "2024-06-24"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+setwd('/home/newuser/Desktop/Rworks')
+```
+
+## Plotting diversity parameters with Martin lab software
+
+```{r}
+#filter windows with less sites, may be biased (at the end of each chromosome)
+div_in_windows <- read.csv('div.eu40.vs.dchry2.3.autosome.DP8_100.GQ20.Call20.10k.csv',header = T)
+div_in_windows_filt <- div_in_windows[div_in_windows$sites == max(div_in_windows$sites),]
+colnames(div_in_windows_filt)
+
+#average diversity for each population
+pi_Med <- median(div_in_windows_filt$pi_Mediterranean)
+pi_Afr <- median(div_in_windows_filt$pi_African)
+
+
+
+```
+
+Plotting the results for single chromosome, chr15 and B locus
+
+```{r}
+library(ggplot2)
+
+#plot the hig-resolution graph for a single chromosome containing the B locus
+png(filename = paste('div.Med_vs_Afr.chr15.10kb+Blocus.png', sep = ""),res = 300,width = 200, height = 160, units = 'mm')
+  ggplot(div_in_windows_filt[div_in_windows_filt$scaffold == 'chr15',], aes(x = mid)) +
+  geom_line(aes(y = pi_Mediterranean), color = 'red') +
+  ggtitle(paste('Diversity in 10k windows, chr15')) + #add a title
+  geom_vline(xintercept = 6.3e6, linetype = "dashed", color = "red", linewidth = 0.7) + # add a line to show position of B locus
+  geom_line(data = div_in_windows_filt[div_in_windows_filt$scaffold == 'chr15',], aes(x = mid, y = pi_African), color = 'blue') +
+  theme(plot.title = element_text(hjust = 0.5)) #adjust the title position
+
+dev.off()
+```
+
+### Diversity boxplot for each subgroup
+
+```{r}
+library(ggplot2)
+library(reshape)
+
+div_100k_sub <- read.csv('div.eu40.vs.dchry2.3.autosome.DP8_100.GQ20.Call20.100k.sub.csv',header = T)
+div_100k <- read.csv('div.eu40.vs.dchry2.3.autosome.DP8_100.GQ20.Call20.100k.csv',header = T)
+
+
+#combine the pi-estimates for a comprehensive boxplot
+group_names <- grep('^pi_*',colnames(div_100k_sub),value = T) #find the pattern for diversity of each group name
+group_names_pop <- grep('^pi_*',colnames(div_100k),value = T)
+div_100k_combine <- cbind(div_100k[,group_names_pop],div_100k_sub[,group_names])
+
+#calculate the median values for each subgroup
+pi_medians <- apply(div_100k[,group_names_pop],2,median)
+pi_medians_sub <- apply(div_100k_sub[,group_names],2,median)
+print(pi_medians)
+print(pi_medians_sub)
+
+#boxplot to demonstrate the population structure between groups
+div_100k_sub_m <- melt(div_100k_combine)
+n <- nrow(div_100k_sub)
+div_100k_sub_m$Population <- c(rep('Mediterranean',n),rep('African',n),rep('Mediterranean',7*n),rep('African',2*n))
+
+png(filename = 'Diversity_boxplot_rmoutlier.png',res = 300,width = 200, height = 160, units = 'mm')
+ggplot(div_100k_sub_m, aes(x = variable, y = value, colour = Population)) + 
+  xlab('Population groups') + ylab('Diversity') +
+  geom_boxplot(outlier.shape=NA, notch=FALSE) + #point out the outliers and erase the CIs around the medians
+  geom_vline(xintercept = 2.5, linetype = "dashed", color = "red", linewidth = 0.7) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) #rotate the x-axis label direction
+dev.off()
+
+
+#Wilcoxon test between groups to prove they're not statisticaly different
+wcx_Med_Afr <- wilcox.test(div_100k_combine$pi_Mediterranean,div_100k_combine$pi_African)
+print(wcx_Med_Afr$p.value)
+```
+
+### Plot Fst between populations in windows, B locus
+
+```{r}
+library(ggplot2)
+
+plot.Fst <- function(chrom,df){
+  ymax <- max(df$Fst_Mediterranean_African) + 0.005
+  windsize <- max(df$sites)
+  div_chrom <- df[df$scaffold %in% chrom,]
+  div_chrom <- div_chrom[div_chrom$Fst_Mediterranean_African >= 0,]
+  if (length(chrom)>1) {
+    chrom <- 'autosome'
+  } #if the input is the whole chromosome, generate the corresponding output
+  ggplot(div_chrom, aes(x=mid,y=Fst_Mediterranean_African)) + geom_line() + 
+    ylim(0,ymax) + #standardise the scale of diversity in the plot
+    xlab('Coordinates') + #add a x-axis label 
+    geom_vline(xintercept = 6.3e6, linetype = "dashed", color = "red", linewidth = 0.7) + # add a line to show position of B locus
+    ggtitle(paste('Fst between Mediterranean and Arican population ',chrom,', window size = ',windsize, sep = "")) + #add a title
+    theme(plot.title = element_text(hjust = 0.5)) #adjust the title position
+  
+}
+
+#plot the high-resolution graph for a single chromosome that contains the B locus
+chrom_names <- 'chr15'
+png(filename = paste('Div_plots/Fst.autosome.',chrom_names,'.10kb.png', sep = ""),res = 300,width = 200, height = 160, units = 'mm')
+  plot.Fst(chrom_names,div_in_windows_filt)
+dev.off()
+
+
+#visualise the window length with middle coordinates
+test <- div_in_windows_filt[div_in_windows_filt$scaffold == 'chr15',]
+plot(test$mid,test$mid)
+```
+
+### Summarise Fst between groups with a boxplot
+
+```{r}
+library(ggplot2)
+library(reshape)
+library(stringr)
+
+div_100k_sub <- read.csv('div.eu40.vs.dchry2.3.autosome.DP8_100.GQ20.Call20.100k.sub.csv', header = T)
+div_100k <- read.csv('div.eu40.vs.dchry2.3.autosome.DP8_100.GQ20.Call20.100k.csv',header = T)
+
+Fst_labels <- grep('Fst*',colnames(div_100k_sub),value = T)
+div_100k_Fst <- cbind(div_100k_sub[,Fst_labels],div_100k$Fst_Mediterranean_African)
+colnames(div_100k_Fst)[ncol(div_100k_Fst)] <- 'Fst_Mediterranean_African'
+ 
+#replace NA with the median for each column
+replace_na_with_median <- function(column) {
+  # Calculate the median, excluding NA values
+  median_value <- median(column, na.rm = TRUE)
+  # Replace NA values with the median
+  column[is.na(column)] <- median_value
+  return(column)
+}
+div_100k_Fst_num <- as.data.frame(apply(div_100k_Fst, 2,replace_na_with_median))
+
+#calculate the median Fst between groups
+Fst_medians <- apply(div_100k_Fst_num, 2, median)
+Fst_medians
+
+
+
+#group the comparisons accroding to within/between population
+# Define the reference list
+meta <- read.csv('metadata_detailed.csv')
+ref_Med <- unique(meta[meta$Region == 'Mediterranean','Narrow_regions'])
+ref_Med[ref_Med == 'Canary Islands'] <- 'Canary'
+ref_Afr <- unique(meta[meta$Region == 'African','Narrow_regions'])
+
+#Between group comparisons contain group names from both populations
+between_label <- str_detect(colnames(div_100k_Fst_num), str_c(ref_Med, collapse = "|")) & 
+  str_detect(colnames(div_100k_Fst_num), str_c(ref_Afr, collapse = "|"))
+
+#reorder the dataframe
+col_reorder <- c(colnames(div_100k_Fst_num)[between_label],
+                colnames(div_100k_Fst_num[!between_label]))
+div_100k_Fst_num_reorder <- div_100k_Fst_num[,col_reorder]
+
+#create input for ggplot
+div_100k_Fst_num_m <- melt(div_100k_Fst_num_reorder)
+div_100k_Fst_num_m$Comparison <- 'within'
+between_label_m <- str_detect(div_100k_Fst_num_m$variable, str_c(ref_Med, collapse = "|")) & 
+  str_detect(div_100k_Fst_num_m$variable, str_c(ref_Afr, collapse = "|"))
+table(between_label_m)
+div_100k_Fst_num_m[between_label_m,'Comparison'] <- 'between'
+between_label_t <- str_detect(div_100k_Fst_num_m$variable, str_c('Med', collapse = "|"))
+div_100k_Fst_num_m[between_label_t,'Comparison'] <- 'total'
+table(div_100k_Fst_num_m$Comparison)
+
+#plot the Fst boxplot
+png(filename = 'Fst_boxplot.png',res = 300,width = 200, height = 160, units = 'mm')
+ggplot(div_100k_Fst_num_m, aes(x = variable, y = value, color = Comparison)) + 
+  xlab('Group comparisons') + ylab('Fst') +
+  geom_boxplot(outlier.colour="black", outlier.shape=16, outlier.size=1, notch=FALSE) + #point out the outliers and erase the CIs around the medians
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) #rotate the x-axis label direction
+dev.off()
+
+#remove the outliers for the boxplot
+png(filename = 'Fst_boxplot_rmoutlier.png',res = 300,width = 200, height = 160, units = 'mm')
+ggplot(div_100k_Fst_num_m, aes(x = variable, y = value, color = Comparison)) + 
+  xlab('Group comparisons') + ylab('Fst') +
+  ylim(-0.1,0.1) +
+  geom_hline(aes(yintercept = 0), col = 'red', alpha = 0.5, lty = 'dashed') +
+  geom_boxplot(outlier.shape=NA,notch=FALSE) + #remove the outliers and erase the CIs around the medians
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) #rotate the x-axis label direction
+dev.off()
+
+Fst_median_between <- Fst_medians[col_reorder[1:14]]
+Fst_median_within <- Fst_medians[col_reorder[15:36]]
+t_Fst_median <- t.test(Fst_median_between,Fst_median_within)
+```
+
+### Force the negative Fst values to 0 and plot again
+
+```{r}
+library(ggplot2)
+library(reshape)
+library(stringr)
+
+div_100k_sub <- read.csv('div.eu40.vs.dchry2.3.autosome.DP8_100.GQ20.Call20.100k.sub.csv', header = T)
+div_100k <- read.csv('div.eu40.vs.dchry2.3.autosome.DP8_100.GQ20.Call20.100k.csv',header = T)
+
+Fst_labels <- grep('Fst*',colnames(div_100k_sub),value = T)
+
+#Remove the comparisons with small sample size N<3
+words_to_remove <- c("Tunisia", "Algeria")
+pattern <- paste(words_to_remove, collapse = "|")
+filtered_Fst_labels <- Fst_labels[!grepl(pattern, Fst_labels)]
+
+div_100k_Fst <- cbind(div_100k_sub[,filtered_Fst_labels],div_100k$Fst_Mediterranean_African)
+colnames(div_100k_Fst)[ncol(div_100k_Fst)] <- 'Fst_Mediterranean_African'
+ 
+#replace negative values with 0
+temp <- as.data.frame(lapply(div_100k_Fst, function(x) ifelse(x < 0, 0, x)))
+
+#replace NA with the median for each column
+replace_na_with_median <- function(column) {
+  # Calculate the median, excluding NA values
+  median_value <- median(column, na.rm = TRUE)
+  # Replace NA values with the median
+  column[is.na(column)] <- median_value
+  return(column)
+}
+div_100k_Fst_num <- as.data.frame(apply(temp, 2,replace_na_with_median))
+
+
+
+#calculate the median Fst between groups
+Fst_medians <- apply(div_100k_Fst_num, 2, median)
+Fst_medians
+
+
+
+#group the comparisons accroding to within/between population
+# Define the reference list
+meta <- read.csv('metadata_detailed.csv')
+ref_Med <- unique(meta[meta$Region == 'Mediterranean','Narrow_regions'])
+ref_Med[ref_Med == 'Canary Islands'] <- 'Canary'
+ref_Afr <- unique(meta[meta$Region == 'African','Narrow_regions'])
+
+#Between group comparisons contain group names from both populations
+between_label <- str_detect(colnames(div_100k_Fst_num), str_c(ref_Med, collapse = "|")) & 
+  str_detect(colnames(div_100k_Fst_num), str_c(ref_Afr, collapse = "|"))
+
+#reorder the dataframe
+col_reorder <- c(colnames(div_100k_Fst_num)[between_label],
+                colnames(div_100k_Fst_num[!between_label]))
+div_100k_Fst_num_reorder <- div_100k_Fst_num[,col_reorder]
+
+#create input for ggplot
+div_100k_Fst_num_m <- melt(div_100k_Fst_num_reorder)
+div_100k_Fst_num_m$Comparison <- 'within'
+between_label_m <- str_detect(div_100k_Fst_num_m$variable, str_c(ref_Med, collapse = "|")) & 
+  str_detect(div_100k_Fst_num_m$variable, str_c(ref_Afr, collapse = "|"))
+table(between_label_m)
+div_100k_Fst_num_m[between_label_m,'Comparison'] <- 'between'
+between_label_t <- str_detect(div_100k_Fst_num_m$variable, str_c('Med', collapse = "|"))
+div_100k_Fst_num_m[between_label_t,'Comparison'] <- 'total'
+table(div_100k_Fst_num_m$Comparison)
+
+#plot the Fst boxplot
+png(filename = 'Fst_boxplot_nonegs_n>=3.png',res = 300,width = 200, height = 160, units = 'mm')
+ggplot(div_100k_Fst_num_m, aes(x = variable, y = value, color = Comparison)) + 
+  xlab('Group comparisons') + ylab('Fst') +
+  geom_boxplot(outlier.colour="black", outlier.shape=16, outlier.size=1, notch=FALSE) + #point out the outliers and erase the CIs around the medians
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) #rotate the x-axis label direction
+dev.off()
+
+#remove the outliers for the boxplot
+png(filename = 'Fst_boxplot_rmoutlier_nonegs_n>=3.png',res = 300,width = 200, height = 160, units = 'mm')
+ggplot(div_100k_Fst_num_m, aes(x = variable, y = value, color = Comparison)) + 
+  xlab('Group comparisons') + ylab('Fst') +
+  ylim(0,0.1) +
+  geom_hline(aes(yintercept = 0), col = 'red', alpha = 0.5, lty = 'dashed') +
+  geom_boxplot(outlier.shape=NA,notch=FALSE) + #remove the outliers and erase the CIs around the medians
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) #rotate the x-axis label direction
+dev.off()
+```
+
+## Plotting heatmap for divergence between individuals to demonstrate population subdivision
+
+```{r}
+dist <- read.table('distmat.eu40.vs.dchry2.3.autosome.4dsites.Call20.dist', header = F, row.names = 1, skip = 1)
+meta <- read.csv('metadata_detailed.csv')
+
+colnames(dist) <- row.names(dist)
+dist.t <- dist[match(meta$Sample.ID,rownames(dist)),]
+dist.t <- dist.t[,match(meta$Sample.ID,colnames(dist))] #group the samples according to their geographic location
+
+dist.m <- as.matrix(dist.t)
+
+
+library(reshape)
+
+
+dist.m.melted <- melt(dist.m) #create the input matrix for ggplot heatmap: each row contains rowname, colname and the value for a position in the dxy matrix.
+colnames(dist.m.melted) <- c('x','y','dxy')
+
+cl <- c(rep('blue',28),rep('red',12)) #set the colours for labeling geographic groups
+```
+
+Plotting the results with higher resolution:
+
+```{r, change savepath before runnning}
+library(ggplot2)
+
+png(filename = 'pairwise_dxy_heatmap_autosome_4dsites.png',res = 300,width = 200, height = 160, units = 'mm')
+ggplot(dist.m.melted, aes(x = x, y = y, fill = dxy)) + #filling the tiles with values in the dxy matrix
+  theme(axis.text.x = element_text(angle=90, vjust=.5, hjust=1), axis.text = element_text(size = 6,colour = cl)) + #adjust x-axis label angle and label sizes for both axes 
+  geom_tile() + #plot the heatmap
+  scale_fill_gradient(low = "white", high = "orange") + #adjust the colors representing values
+  coord_fixed() #force tiles to be square shape
+dev.off()
+```
+
+## Calculate pairwise dxy - geographic distance
+
+```{r}
+library(readxl)
+meta.deg <- read_xlsx('chrysippus_RVcoll_sequenced_African_added.xlsx')
+meta <- read.csv('metadata_detailed.csv')
+
+#Merge metadata with coordinates, then adjust the order of samples to be consistent with metadata
+meta.deg2 <- meta.deg[,c('Sample ID',"Lat (Dec. Deg)","Long (Dec. Deg)")]
+meta.all <- merge(meta,meta.deg2,by.x = 'Sample.ID',by.y = 'Sample ID')
+meta.all <- meta.all[match(meta$Sample.ID,meta.all$Sample.ID),]
+
+column_names <- colnames(meta.all)
+column_names[c(4,5)] <- c('Lat','Long')
+colnames(meta.all) <- column_names
+
+#Take the mean coordinates for missing ones among the Ghanean samples
+#Before data input, missing coordiantes for the Catalonian sample are susubstituted with the position of collection on Google map
+val1 <- meta.all[meta.all$Narrow_regions == 'Ghana','Lat'] 
+val2 <- meta.all[meta.all$Narrow_regions == 'Ghana','Long']
+meta.all[meta.all$Sample.ID == c('IG19G105','IG19G114'),'Lat'] <- mean(val1[!is.na(val1)])
+meta.all[meta.all$Sample.ID == c('IG19G105','IG19G114'),'Long'] <- mean(val2[!is.na(val2)])
+
+#One possibe way to calculate distance from coordinates, from Thomas
+deg2rad <- function(deg) {(deg * pi) / (180)}
+coord2dist <- function(lat, lon, lat_1, lon_1) {
+  R <- 6371
+  a = (sin((deg2rad(lat_1) - deg2rad(lat)) / 2) ** 2) + cos(deg2rad(lat)) * cos(deg2rad(lat_1)) * (sin((deg2rad(lon_1) - deg2rad(lon)) / 2) ** 2)
+  d = 2*R*atan2(sqrt(a), sqrt(1 - a))
+  return(d)
+  
+}
+
+#Create distance matrix 
+div_vs_dist <- matrix(0,nrow = 1600, ncol = 3)
+div_vs_dist <- as.data.frame(div_vs_dist)
+colnames(div_vs_dist) <- c('x','y','dist')
+
+for (i in 1:40) {
+  for (j in 1:40) {
+    div_vs_dist[(i-1)*40+j,'y'] <- meta.all[i,'Sample.ID']
+    div_vs_dist[(i-1)*40+j,'x'] <- meta.all[j,'Sample.ID'] #fill in x first, then fill in y
+    div_vs_dist[(i-1)*40+j,'dist'] <- coord2dist(meta.all[i,'Lat'],meta.all[i,'Long'],meta.all[j,'Lat'],meta.all[j,'Long'])
+  }
+}
+```
+
+*Run the code block to input divergence matrix before running this block*
+
+```{r}
+library(ggplot2)
+library(reshape)
+
+dist <- read.table('distmat.eu40.vs.dchry2.3.autosome.4dsites.Call20.dist', header = F, row.names = 1, skip = 1)
+meta <- read.csv('metadata_detailed.csv')
+
+colnames(dist) <- row.names(dist)
+dist.t <- dist[match(meta$Sample.ID,rownames(dist)),]
+dist.t <- dist.t[,match(meta$Sample.ID,colnames(dist))] #group the samples according to their geographic location
+
+dist.m <- as.matrix(dist.t)
+dist.m.melted <- melt(dist.m) #create the input matrix for ggplot heatmap: each row contains rowname, colname and the value for a position in the dxy matrix.
+colnames(dist.m.melted) <- c('x','y','dxy')
+
+cl <- c(rep('blue',28),rep('red',12)) #set the colours for labeling geographic groups
+
+#check the consistency between divergence matrix and geodistance matrix, then imput divergence values
+sum(div_vs_dist$x == dist.m.melted$x)
+sum(div_vs_dist$y == dist.m.melted$y)
+div_vs_dist$dxy <- dist.m.melted$dxy
+
+# plot divergence against distance, exclude self-comparsions
+between_label <- which(div_vs_dist$x != div_vs_dist$y)
+div_vs_dist_between <- div_vs_dist[between_label,]
+
+#label the pairs of samples from the same location, exclude them from the plot
+div_vs_dist_between$Population <- 0
+for (i in 1:nrow(div_vs_dist_between)) {
+  sample.x <- div_vs_dist_between[i,'x']
+  sample.y <- div_vs_dist_between[i,'y']
+  if(meta.all[meta.all$Sample.ID == sample.x,'Narrow_regions'] == meta.all[meta.all$Sample.ID ==             sample.y,'Narrow_regions']){
+    div_vs_dist_between[i,'Population'] <- 1
+  }
+}
+div_vs_dist_between_regions <- div_vs_dist_between[div_vs_dist_between$Population == 0,]
+
+#group the pairs of samples with: between/within population
+div_vs_dist_between_regions$Population <- 'between'
+for (i in 1:nrow(div_vs_dist_between_regions)) {
+  sample.x <- div_vs_dist_between_regions[i,'x']
+  sample.y <- div_vs_dist_between_regions[i,'y']
+  if(meta.all[meta.all$Sample.ID == sample.x,'Region'] == meta.all[meta.all$Sample.ID ==             sample.y,'Region']){
+    div_vs_dist_between_regions[i,'Population'] <- 'within' #label purple if pair of samples from the same population
+  }
+}
+
+
+#function for adding regression line to ggplot
+lm_eqn <- function(df){
+    m <- lm(dxy ~ dist, data = df);
+    eq <- substitute(italic(y) == a + b %.% italic(x)*","~~italic(r)^2~"="~r2, 
+         list(a = format(unname(coef(m)[1]), digits = 2),
+              b = format(unname(coef(m)[2]), digits = 2),
+             r2 = format(summary(m)$r.squared, digits = 3)))
+    as.character(as.expression(eq));
+} #function for adding legend for the regression line
+
+# output the graph
+png(filename = 'Dvg_vs_dist.autosome.4d.png',res = 300,width = 200, height = 160, units = 'mm')
+
+ggplot(data = div_vs_dist_between_regions, aes(x = dist, y = dxy, color = Population)) +
+    geom_smooth(method = "lm", se=FALSE, color="red", formula = y ~ x, lty = 'dashed') + #add regression line on the plot
+    geom_point() +
+    geom_text(x = 1000, y = 0.046, label = lm_eqn(div_vs_dist_between_regions), parse = TRUE, cex = 4, col = 'red') #adjust the position and size of the regression line legend
+
+dev.off()
+
+m <- lm(dxy ~ dist, data = div_vs_dist_between_regions)
+summary(m)
+```
+
+Plot net divergence against distance: [dxy is smaller than population diversity, may not be applicable]{.underline}
+
+### Plot the dxy vs. distance graph for the Mediterranean group alone
+
+```{r}
+#find the pairs of samples from Mediterranean region
+for (i in 1:nrow(div_vs_dist_between_regions)) {
+  sample.x <- div_vs_dist_between_regions[i,'x']
+  sample.y <- div_vs_dist_between_regions[i,'y']
+  if(meta.all[meta.all$Sample.ID == sample.x,'Region'] ==  'Mediterranean' && meta.all[meta.all$Sample.ID == sample.y,'Region'] ==  'Mediterranean'){
+    div_vs_dist_between_regions[i,'Population'] <- 'withinMed' #label purple if pair of samples from the same population
+  }
+}
+div_vs_dist_between_Med <- div_vs_dist_between_regions[div_vs_dist_between_regions$Population == 'withinMed',]
+
+#function for adding regression line to ggplot
+lm_eqn <- function(df){
+    m <- lm(dxy ~ dist, data = df);
+    eq <- substitute(italic(y) == a + b %.% italic(x)*","~~italic(r)^2~"="~r2, 
+         list(a = format(unname(coef(m)[1]), digits = 2),
+              b = format(unname(coef(m)[2]), digits = 2),
+             r2 = format(summary(m)$r.squared, digits = 3)))
+    as.character(as.expression(eq));
+} #function for adding legend for the regression line
+
+# output the graph
+png(filename = 'Dvg_vs_dist.autosome.4d.Med.png',res = 300,width = 200, height = 160, units = 'mm')
+
+ggplot(data = div_vs_dist_between_Med, aes(x = dist, y = dxy, color = Population)) +
+    geom_smooth(method = "lm", se=FALSE, color="red", formula = y ~ x, lty = 'dashed') + #add regression line on the plot
+    geom_point() +
+    geom_text(x = 770, y = 0.0454, label = lm_eqn(div_vs_dist_between_Med), parse = TRUE, cex = 4, col = 'red') #adjust the position and size of the regression line legend
+
+dev.off()
+
+m <- lm(dxy ~ dist, data = div_vs_dist_between_Med)
+summary(m)
+```
+
+## Plot the putative neutral site diversity between populations (4d-sites) within windows
+
+```{r}
+#filter windows with less sites, may be biased (at the end of each chromosome)
+div_4d <- read.csv('div.eu40.vs.dchry2.3.autosome.DP8_100.GQ20.4dsites.Call20.10k.csv',header = T)
+div_4d_filt <- div_4d[div_4d$sites == max(div_4d$sites),]
+
+
+#plot 4d-diversity per chromosome for each population
+library(ggplot2)
+
+plot.div.Med <- function(chrom,df){
+  ymax <- max(df$pi_Mediterranean) + 0.005
+  windsize <- max(df$sites)
+  div_chrom <- df[df$scaffold %in% chrom,]
+  if (length(chrom)>1) {
+    chrom <- 'autosome'
+  }
+  ggplot(div_chrom, aes(x=1:nrow(div_chrom),y=pi_Mediterranean)) + geom_line() + 
+    ylim(0,ymax) + #standardise the scale of diversity in the plot
+    xlab('Windows') + #add a x-axis label 
+    ggtitle(paste('Diversity of',chrom,', window size =',windsize)) + #add a title
+    theme(plot.title = element_text(hjust = 0.5)) #adjust the title position
+  
+}
+
+plot.div.Afr <- function(chrom,df){
+  ymax <- max(df$pi_African) + 0.005
+  windsize <- max(df$sites)
+  div_chrom <- df[df$scaffold %in% chrom,]
+  if (length(chrom)>1) {
+    chrom <- 'autosome'
+  }
+  ggplot(div_chrom, aes(x=1:nrow(div_chrom),y=pi_African)) + geom_line() + 
+    ylim(0,ymax) + #standardise the scale of diversity in the plot
+    xlab('Windows') + #add a x-axis label 
+    ggtitle(paste('Diversity of',chrom,', window size =',windsize)) + #add a title
+    theme(plot.title = element_text(hjust = 0.5)) #adjust the title position
+  
+}
+
+plot.div.Med(unique(div_4d_filt$scaffold),div_4d_filt)
+plot.div.Afr(unique(div_4d_filt$scaffold),div_4d_filt)
+
+
+chrom_names <- unique(div_in_windows_filt$scaffold)
+for (i in 1:length(chrom_names)) {
+
+png(filename = paste('Div_plots/div.Med.autosome.',chrom_names[i],'.10kb.png', sep = ""),res = 300,width = 200, height = 160, units = 'mm')
+  plot.div.Med(chrom_names[i],div_in_windows_filt)
+dev.off()
+
+}
+```
+
+### Boxplot for 4d-site diversity for each sub-group
+
+```{r}
+library(ggplot2)
+library(reshape)
+
+div_4d_10k_sub <- read.csv('div.eu40.vs.dchry2.3.autosome.DP8_100.GQ20.4dsites.Call20.10k(subgroups).csv')
+div_4d_10k <- read.csv('div.eu40.vs.dchry2.3.autosome.DP8_100.GQ20.4dsites.Call20.10k.csv',header = T)
+
+
+#combine the pi-estimates for a comprehensive boxplot
+group_names <- grep('^pi_*',colnames(div_4d_10k_sub),value = T) #find the pattern for diversity of each group name
+group_names_pop <- grep('^pi_*',colnames(div_4d_10k),value = T)
+div_4d_10k_combine <- cbind(div_4d_10k[,group_names_pop],div_4d_10k_sub[,group_names])
+
+#calculate the median values for each subgroup
+pi_medians_4d <- apply(div_4d_10k[,group_names_pop],2,median)
+pi_medians_4d_sub <- apply(div_4d_10k_sub[,group_names],2,median)
+print(pi_medians_4d)
+print(pi_medians_4d_sub)
+
+#boxplot to demonstrate the population structure between groups
+div_4d_10k_sub_m <- melt(div_4d_10k_combine)
+n <- nrow(div_4d_10k_sub)
+div_4d_10k_sub_m$Population <- c(rep('Mediterranean',n),rep('African',n),rep('Mediterranean',7*n),rep('African',2*n))
+
+png(filename = 'Diversity_boxplot_4d_rmoutlier.png',res = 300,width = 200, height = 160, units = 'mm')
+ggplot(div_4d_10k_sub_m, aes(x = variable, y = value, colour = Population)) + 
+  xlab('Population groups') + ylab('4d-Diversity') +
+  geom_boxplot(outlier.shape=NA, notch=FALSE) + #point out the outliers and erase the CIs around the medians
+  geom_vline(xintercept = 2.5, linetype = "dashed", color = "red", linewidth = 0.7) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) #rotate the x-axis label direction
+dev.off()
+
+
+#Wilcoxon test between groups to prove they're not statisticaly different
+wcx_Med_Afr <- wilcox.test(div_4d_10k_combine$pi_Mediterranean,div_4d_10k_combine$pi_African)
+print(wcx_Med_Afr$p.value)
+```
+
+### Plot Fst between groups based on the 4d-sites
+
+```{r}
+library(ggplot2)
+library(reshape)
+library(stringr)
+
+div_4d_10k_sub <- read.csv('div.eu40.vs.dchry2.3.autosome.DP8_100.GQ20.4dsites.Call20.10k(subgroups).csv')
+div_4d_10k <- read.csv('div.eu40.vs.dchry2.3.autosome.DP8_100.GQ20.4dsites.Call20.10k.csv',header = T)
+
+Fst_labels <- grep('Fst*',colnames(div_4d_10k_sub),value = T)
+div_4d_10k_Fst <- cbind(div_4d_10k_sub[,Fst_labels],div_4d_10k$Fst_Mediterranean_African)
+colnames(div_4d_10k_Fst)[ncol(div_4d_10k_Fst)] <- 'Fst_Mediterranean_African'
+ 
+#replace NA with the median for each column
+replace_na_with_median <- function(column) {
+  # Calculate the median, excluding NA values
+  median_value <- median(column, na.rm = TRUE)
+  # Replace NA values with the median
+  column[is.na(column)] <- median_value
+  return(column)
+}
+div_4d_10k_Fst_num <- as.data.frame(apply(div_4d_10k_Fst, 2,replace_na_with_median))
+
+#calculate the median Fst between groups
+Fst_medians <- apply(div_4d_10k_Fst_num, 2, median)
+Fst_medians
+
+
+
+#group the comparisons accroding to within/between population
+# Define the reference list
+meta <- read.csv('metadata_detailed.csv')
+ref_Med <- unique(meta[meta$Region == 'Mediterranean','Narrow_regions'])
+ref_Med[ref_Med == 'Canary Islands'] <- 'Canary'
+ref_Afr <- unique(meta[meta$Region == 'African','Narrow_regions'])
+
+#Between group comparisons contain group names from both populations
+between_label <- str_detect(colnames(div_4d_10k_Fst_num), str_c(ref_Med, collapse = "|")) & 
+  str_detect(colnames(div_4d_10k_Fst_num), str_c(ref_Afr, collapse = "|"))
+
+#reorder the dataframe
+col_reorder <- c(colnames(div_4d_10k_Fst_num)[between_label],
+                colnames(div_4d_10k_Fst_num[!between_label]))
+div_4d_10k_Fst_num_reorder <- div_4d_10k_Fst_num[,col_reorder]
+
+#create input for ggplot
+div_4d_10k_Fst_num_m <- melt(div_4d_10k_Fst_num_reorder)
+div_4d_10k_Fst_num_m$Comparison <- 'within'
+between_label_m <- str_detect(div_4d_10k_Fst_num_m$variable, str_c(ref_Med, collapse = "|")) & 
+  str_detect(div_4d_10k_Fst_num_m$variable, str_c(ref_Afr, collapse = "|"))
+table(between_label_m)
+div_4d_10k_Fst_num_m[between_label_m,'Comparison'] <- 'between'
+between_label_t <- str_detect(div_4d_10k_Fst_num_m$variable, str_c('Med', collapse = "|"))
+div_4d_10k_Fst_num_m[between_label_t,'Comparison'] <- 'total'
+table(div_4d_10k_Fst_num_m$Comparison)
+
+#plot the Fst boxplot
+png(filename = 'Fst_boxplot_4d.png',res = 300,width = 200, height = 160, units = 'mm')
+ggplot(div_4d_10k_Fst_num_m, aes(x = variable, y = value, color = Comparison)) + 
+  xlab('Group comparisons') + ylab('Fst') +
+  geom_boxplot(outlier.colour="black", outlier.shape=16, outlier.size=1, notch=FALSE) + #point out the outliers and erase the CIs around the medians
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) #rotate the x-axis label direction
+dev.off()
+
+#remove the outliers for the boxplot
+png(filename = 'Fst_boxplot_4d_rmoutlier.png',res = 300,width = 200, height = 160, units = 'mm')
+ggplot(div_4d_10k_Fst_num_m, aes(x = variable, y = value, color = Comparison)) + 
+  xlab('Group comparisons') + ylab('Fst') +
+  ylim(-0.1,0.1) +
+  geom_hline(aes(yintercept = 0), col = 'red', alpha = 0.5, lty = 'dashed') +
+  geom_boxplot(outlier.shape=NA,notch=FALSE) + #remove the outliers and erase the CIs around the medians
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) #rotate the x-axis label direction
+dev.off()
+```
