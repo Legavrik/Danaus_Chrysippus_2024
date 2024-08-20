@@ -1,0 +1,17 @@
+annotate_cds.sh
+bcf_rm1_4dsites.sh
+bcf_rm3_subMed.sh
+bcfsample.sh
+bcf_stats_4d.sh
+bcfstats.sh
+chr_filter.sh
+filelist
+filter_autosome.sh
+filter_chr30.sh
+PCA.py
+pca.rm1.py
+pca.rm1.sh
+pca.sh
+plink.sh
+rm_inversion.sh
+roh.sh
